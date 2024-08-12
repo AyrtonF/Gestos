@@ -7,10 +7,10 @@
             "command": "javac",
             "args": [
                 "-cp",
-                "lib/opencv-4100.jar",
+                "c:/Users/Pichau/3D Objects/projeto cam/Gestos/ProjetoG/lib/opencv-4100.jar",
                 "-d",
-                "bin",
-                "src/Main.java"
+                "c:/Users/Pichau/3D Objects/projeto cam/Gestos/ProjetoG/bin",
+                "c:/Users/Pichau/3D Objects/projeto cam/Gestos/ProjetoG/src/Main.java"
             ],
             "group": {
                 "kind": "build",

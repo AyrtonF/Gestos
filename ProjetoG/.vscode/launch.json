@@ -7,8 +7,8 @@
             "request": "launch",
             "mainClass": "Main",
             "classPaths": [
-                "bin",
-                "lib/opencv-4100.jar"
+                "c:/Users/Pichau/3D Objects/projeto cam/Gestos/ProjetoG/bin",
+                "c:/Users/Pichau/3D Objects/projeto cam/Gestos/ProjetoG/lib/opencv-4100.jar"
             ],
             "vmArgs": "-Djava.library.path=native"
         }

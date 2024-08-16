@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import pyautogui
 import mediapipe as mp
+import math
 
 # Configura MediaPipe Hands
 mpMaos = mp.solutions.hands
@@ -34,48 +35,75 @@ while True:
         for pontosDaMao in resultados.multi_hand_landmarks:
             mpDesenho.draw_landmarks(quadro, pontosDaMao, mpMaos.HAND_CONNECTIONS)
 
-            # Obtém as coordenadas dos pontos dos dedos (ex: dedo indicador e dedo mínimo)
+            # Obtém as coordenadas dos pontos dos dedos (ex: polegar, indicador, etc.)
+            pontaPolegar = pontosDaMao.landmark[mpMaos.HandLandmark.THUMB_TIP]
             pontaIndicador = pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_TIP]
+            pontaMeio = pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_TIP]
+            pontaAnelar = pontosDaMao.landmark[mpMaos.HandLandmark.RING_FINGER_TIP]
             pontaMinimo = pontosDaMao.landmark[mpMaos.HandLandmark.PINKY_TIP]
-            palma = pontosDaMao.landmark[mpMaos.HandLandmark.WRIST]
 
-            # Converte as coordenadas normalizadas para a escala da imagem
-            altura, largura, _ = quadro.shape
-            indicadorY = int(pontaIndicador.y * altura)
-            minimoY = int(pontaMinimo.y * altura)
-            palmaX = int(palma.x * largura)
+            # Verifica se o indicador e polegar estão levantados e os outros dedos estão abaixados
+            def dedoLevantado(ponta, base):
+                return ponta.y < base.y
 
-            # Determina o estado atual do gesto de volume
-            if indicadorY < minimoY:
-                estadoAtual = 'volumeUp'
-            elif indicadorY > minimoY:
-                estadoAtual = 'volumeDown'
+            def dedoAbaixado(ponta, base):
+                return ponta.y > base.y
+
+            polegarLevantado = dedoLevantado(pontaPolegar, pontosDaMao.landmark[mpMaos.HandLandmark.THUMB_MCP])
+            indicadorLevantado = dedoLevantado(pontaIndicador, pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_MCP])
+            medioLevantado = dedoLevantado(pontaMeio, pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_MCP])
+            anelarLevantado = dedoLevantado(pontaAnelar, pontosDaMao.landmark[mpMaos.HandLandmark.RING_FINGER_MCP])
+            minimoLevantado = dedoLevantado(pontaMinimo, pontosDaMao.landmark[mpMaos.HandLandmark.PINKY_MCP])
+
+            # Verifica se apenas o indicador e o polegar estão levantados
+            if polegarLevantado and indicadorLevantado and not (medioLevantado or anelarLevantado or minimoLevantado):
+                # Converte as coordenadas normalizadas para a escala da imagem
+                altura, largura, _ = quadro.shape
+                polegarX, polegarY = int(pontaPolegar.x * largura), int(pontaPolegar.y * altura)
+                indicadorX, indicadorY = int(pontaIndicador.x * largura), int(pontaIndicador.y * altura)
+                palmaX = int(pontosDaMao.landmark[mpMaos.HandLandmark.WRIST].x * largura)
+
+                # Calcula a distância entre o polegar e o indicador
+                distancia = math.hypot(indicadorX - polegarX, indicadorY - polegarY)
+
+                # Define os limites para a distância e o volume
+                minDistancia = 20
+                maxDistancia = 200
+                minVolume = 0
+                maxVolume = 100
+
+                # Converte a distância para o valor de volume
+                volume = np.interp(distancia, [minDistancia, maxDistancia], [minVolume, maxVolume])
+
+                # Executa o comando de volume apenas se o estado mudou
+                if estadoAnterior is not None and volume != estadoAnterior:
+                    if volume > estadoAnterior:
+                        pyautogui.press('volumeup')
+                    elif volume < estadoAnterior:
+                        pyautogui.press('volumedown')
+
+                estadoAnterior = volume  # Atualiza o estadoAnterior com o volume atual
+
+                # Detecta movimentos de swipe (deslize)
+                if coordenadasAnteriores:
+                    deltaX = palmaX - coordenadasAnteriores[0]
+
+                    # Verifica se o movimento é predominantemente horizontal
+                    if abs(deltaX) > 30:  # Limite para considerar um swipe
+                        if deltaX > 0:  # Swipe para a direita
+                            pyautogui.press('nexttrack')  # Passa para a próxima música/foto
+                            print("Swipe para a direita detectado.")
+                        else:  # Swipe para a esquerda
+                            pyautogui.press('prevtrack')  # Volta para a música/foto anterior
+                            print("Swipe para a esquerda detectado.")
+
+                # Atualiza as coordenadas anteriores
+                coordenadasAnteriores = (palmaX, indicadorY)
+
             else:
-                estadoAtual = 'neutro'
-
-            # Executa o comando de volume apenas se o estado mudou
-            if estadoAtual != estadoAnterior:
-                if estadoAtual == 'volumeUp':
-                    pyautogui.press('volumeup')
-                elif estadoAtual == 'volumeDown':
-                    pyautogui.press('volumedown')
-                estadoAnterior = estadoAtual
-
-            # Detecta movimentos de swipe (deslize)
-            if coordenadasAnteriores:
-                deltaX = palmaX - coordenadasAnteriores[0]
-
-                # Verifica se o movimento é predominantemente horizontal
-                if abs(deltaX) > 30:  # Limite para considerar um swipe
-                    if deltaX > 0:  # Swipe para a direita
-                        pyautogui.press('nexttrack')  # Passa para a próxima música/foto
-                        print("Swipe para a direita detectado.")
-                    else:  # Swipe para a esquerda
-                        pyautogui.press('prevtrack')  # Volta para a música/foto anterior
-                        print("Swipe para a esquerda detectado.")
-
-            # Atualiza as coordenadas anteriores
-            coordenadasAnteriores = (palmaX, indicadorY)
+                # Se outro movimento for detectado, reseta as coordenadas e o estado anterior
+                coordenadasAnteriores = None
+                estadoAnterior = None
 
     else:
         coordenadasAnteriores = None  # Reseta as coordenadas quando a mão não é detectada

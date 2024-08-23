@@ -23,6 +23,17 @@ comandoAtivo = True
 ultimoGestoPlayPause = 0
 cooldown = 3  # Cooldown de 3 segundos
 
+# Filtros para suavização
+historicoPolegar = []
+historicoIndicador = []
+historicoPalma = []
+
+def suavizar_coord(historico, novo_valor, tamanho=5):
+    historico.append(novo_valor)
+    if len(historico) > tamanho:
+        historico.pop(0)
+    return np.mean(historico, axis=0)
+
 def dedoLevantado(ponta, base):
     return ponta.y < base.y
 
@@ -43,6 +54,14 @@ def gestoHangLoose(pontosDaMao):
     
     return polegarLevantado and minimoLevantado and indicadorAbaixado and medioAbaixado and anelarAbaixado
 
+def gestoSwipe(pontosDaMao):
+    indicadorLevantado = dedoLevantado(pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_TIP],
+                                       pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_MCP])
+    medioLevantado = dedoLevantado(pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_TIP],
+                                   pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_MCP])
+    
+    return indicadorLevantado and medioLevantado
+
 def gestoReset(pontosDaMao):
     return all(dedoAbaixado(pontosDaMao.landmark[i], pontosDaMao.landmark[i-2])
                for i in [mpMaos.HandLandmark.THUMB_TIP,
@@ -50,6 +69,28 @@ def gestoReset(pontosDaMao):
                         mpMaos.HandLandmark.MIDDLE_FINGER_TIP,
                         mpMaos.HandLandmark.RING_FINGER_TIP,
                         mpMaos.HandLandmark.PINKY_TIP])
+
+def gestoCursor(pontosDaMao):
+    indicadorLevantado = dedoLevantado(pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_TIP],
+                                       pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_MCP])
+    medioLevantado = dedoLevantado(pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_TIP],
+                                   pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_MCP])
+    
+    return indicadorLevantado and medioLevantado
+
+def gestoClique(pontosDaMao):
+    indicadorLevantado = dedoLevantado(pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_TIP],
+                                       pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_MCP])
+    medioLevantado = dedoLevantado(pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_TIP],
+                                   pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_MCP])
+    
+    # Detecta um gesto de pinça para clicar
+    distancia = math.hypot(
+        (pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_TIP].x - pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_TIP].x) * largura,
+        (pontosDaMao.landmark[mpMaos.HandLandmark.INDEX_FINGER_TIP].y - pontosDaMao.landmark[mpMaos.HandLandmark.MIDDLE_FINGER_TIP].y) * altura
+    )
+    
+    return indicadorLevantado and medioLevantado and distancia < 50  # Distância para detectar a pinça
 
 while True:
     # Captura o quadro da câmera
@@ -74,6 +115,14 @@ while True:
             pontaAnelar = pontosDaMao.landmark[mpMaos.HandLandmark.RING_FINGER_TIP]
             pontaMinimo = pontosDaMao.landmark[mpMaos.HandLandmark.PINKY_TIP]
 
+            # Converte as coordenadas normalizadas para a escala da imagem
+            altura, largura, _ = quadro.shape
+            polegarX = suavizar_coord(historicoPolegar, int(pontaPolegar.x * largura))
+            polegarY = suavizar_coord(historicoPolegar, int(pontaPolegar.y * altura))
+            indicadorX = suavizar_coord(historicoIndicador, int(pontaIndicador.x * largura))
+            indicadorY = suavizar_coord(historicoIndicador, int(pontaIndicador.y * altura))
+            palmaX = suavizar_coord(historicoPalma, int(pontosDaMao.landmark[mpMaos.HandLandmark.WRIST].x * largura))
+
             # Verifica os gestos
             if gestoReset(pontosDaMao):
                 comandoAtivo = False
@@ -88,6 +137,31 @@ while True:
                         print("Gesto de Hang Loose detectado.")
                         ultimoGestoPlayPause = current_time
                 estadoAnterior = None
+            elif gestoSwipe(pontosDaMao):
+                if coordenadasAnteriores:
+                    # Verifica se o movimento é predominantemente horizontal
+                    deltaX = palmaX - coordenadasAnteriores[0]
+
+                    if abs(deltaX) > 50:  # Limite para considerar um swipe
+                        if deltaX > 0:  # Swipe para a direita
+                            pyautogui.press('nexttrack')  # Passa para a próxima música/foto
+                            print("Swipe para a direita detectado.")
+                        else:  # Swipe para a esquerda
+                            pyautogui.press('prevtrack')  # Volta para a música/foto anterior
+                            print("Swipe para a esquerda detectado.")
+
+                    # Atualiza as coordenadas anteriores
+                    coordenadasAnteriores = (palmaX, coordenadasAnteriores[1])
+
+            elif gestoCursor(pontosDaMao):
+                # Atualiza a posição do cursor
+                pyautogui.moveTo(indicadorX, indicadorY)
+                print("Movendo o cursor para:", indicadorX, indicadorY)
+
+            elif gestoClique(pontosDaMao):
+                pyautogui.click()
+                print("Clique detectado.")
+                
             else:
                 if not comandoAtivo:
                     comandoAtivo = True  # Retoma o comando se a mão não estiver fechada
@@ -102,12 +176,6 @@ while True:
 
                     # Verifica se o indicador e polegar estão levantados e os outros dedos estão abaixados
                     if polegarLevantado and indicadorLevantado and not (medioLevantado or anelarLevantado or minimoLevantado):
-                        # Converte as coordenadas normalizadas para a escala da imagem
-                        altura, largura, _ = quadro.shape
-                        polegarX, polegarY = int(pontaPolegar.x * largura), int(pontaPolegar.y * altura)
-                        indicadorX, indicadorY = int(pontaIndicador.x * largura), int(pontaIndicador.y * altura)
-                        palmaX = int(pontosDaMao.landmark[mpMaos.HandLandmark.WRIST].x * largura)
-
                         # Calcula a distância entre o polegar e o indicador
                         distancia = math.hypot(indicadorX - polegarX, indicadorY - polegarY)
 
@@ -129,24 +197,8 @@ while True:
 
                         estadoAnterior = volume  # Atualiza o estadoAnterior com o volume atual
 
-                        # Detecta movimentos de swipe (deslize)
-                        if coordenadasAnteriores:
-                            deltaX = palmaX - coordenadasAnteriores[0]
-
-                            # Verifica se o movimento é predominantemente horizontal
-                            if abs(deltaX) > 10:  # Limite para considerar um swipe
-                                if deltaX > 0:  # Swipe para a direita
-                                    pyautogui.press('nexttrack')  # Passa para a próxima música/foto
-                                    print("Swipe para a direita detectado.")
-                                else:  # Swipe para a esquerda
-                                    pyautogui.press('prevtrack')  # Volta para a música/foto anterior
-                                    print("Swipe para a esquerda detectado.")
-
-                        # Atualiza as coordenadas anteriores
-                        coordenadasAnteriores = (palmaX, indicadorY)
-
-                else:
-                    coordenadasAnteriores = None  # Reseta as coordenadas quando a mão não é detectada
+                    # Atualiza as coordenadas anteriores para swipe
+                    coordenadasAnteriores = (palmaX, indicadorY) if coordenadasAnteriores is None else coordenadasAnteriores
 
     else:
         coordenadasAnteriores = None  # Reseta as coordenadas quando a mão não é detectada
@@ -156,9 +208,8 @@ while True:
 
     # Sai do loop quando a tecla 'q' é pressionada
     if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        break   
 
 # Libere a câmera e feche todas as janelas
 camera.release()
 cv2.destroyAllWindows()
- 
